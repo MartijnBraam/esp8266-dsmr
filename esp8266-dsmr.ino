@@ -78,7 +78,7 @@ int lvlPin = 5;
 void setup()
 {
   // Start serial ESP8266 RX port (pin 3)
-  Serial.begin(115200);
+  Serial.begin(9600, SERIAL_7E1);
   pinMode(rxPin, FUNCTION_0); // RX
 
   logger.info("Start setup");
@@ -87,7 +87,7 @@ void setup()
   pinMode(lvlPin, OUTPUT);    // D1
   digitalWrite(lvlPin, HIGH); // Turn on RX Trans
 
-  snprintf(identifier, sizeof(identifier), "ESP_DSMR_%X", ESP.getChipId());
+  snprintf(identifier, sizeof(identifier), "devices/hoofdweg/iskra");
 
   // Setup Wifi
   wifiConnector = WifiConnector();
@@ -101,9 +101,7 @@ void setup()
   ArduinoOTA.setHostname(WIFI_HOSTNAME);
   ArduinoOTA.begin();
 
-  // Sent HA config
-  autoConfig = AutoConfig(mqttPublisher, identifier);
-  autoConfig.SendConfig();
+  incomingString.reserve(512);
 
   logger.info("Setup complete");
 }
@@ -119,10 +117,13 @@ void loop()
   yield();
 
   // If serial received, read until newline
-  if (Serial.available() > 0)
-  {
-    incomingString = Serial.readStringUntil('\n');
-    handleString(incomingString);
+  while(Serial.available()) {
+    char inchr = (char)Serial.read();
+    incomingString += inchr;
+    if(inchr == '\n') {
+      handleString(incomingString);
+      incomingString = "";
+    }
   }
 }
 
@@ -147,25 +148,18 @@ void handleString(String incomingString)
       switch (measurement.valueType)
       {
       case Measurement::FLOAT:
-        value = String(value.toFloat(), 3);
+        value = String(value.toFloat(), 3);        
         break;
       case Measurement::INT:
         value = String(value.toInt());
         break;
       default:
+        value = "\"" + value + "\"";
         break;
       }
 
-      // Check if measurement state is offline, if so publish online state and last reset
-      if (!measurement.online)
-      {
-        measurement.online = true;
-        mqttPublisher.publish(measurement.name + "/status", "online", true);
-        mqttPublisher.publish(measurement.name + "/reset", "1970-01-01T00:00:00+00:00", true);
-      }
-
       // Publish measurement
-      mqttPublisher.publish(measurement.name, value, true);
+      mqttPublisher.publish(measurement.name, "{\""+measurement.name+"\": "+value+"}", true);
     }
   }
 }
